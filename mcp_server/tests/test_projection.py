@@ -48,9 +48,9 @@ def test_node_projection_properties(neo4j_container):
         res = session.run("MATCH (n) WHERE 'Foo' IN labels(n) RETURN count(n) as count")
         existing_count1 = res.single()["count"]
 
-    from mcp_server.src.mcp_server_neo4j_gds.gds import validate_properties
+    from mcp_server.src.mcp_server_neo4j_gds.gds import validate_node_properties
 
-    projection_properties = validate_properties(
+    projection_properties = validate_node_properties(
         gds,
         [
             "propInt",
@@ -92,4 +92,91 @@ def test_node_projection_properties(neo4j_container):
     assert projection_properties["propListInt"] == "INTEGER_LIST"
     assert projection_properties["propListDoubleListInt"] == "FLOAT_LIST"
     assert existing_count1 == 2
+    assert existing_count2 == 0
+
+
+@pytest.mark.asyncio
+def test_node_projection_properties_with_node_labels(neo4j_container):
+    """Import test data into Neo4j."""
+    # Set environment variables for the import script
+    os.environ["NEO4J_URI"] = neo4j_container
+    os.environ["NEO4J_USERNAME"] = NEO4J_USER
+    os.environ["NEO4J_PASSWORD"] = NEO4J_PASSWORD
+
+    driver = GraphDatabase.driver(neo4j_container, auth=(NEO4J_USER, NEO4J_PASSWORD))
+    existing_count1 = -1
+    existing_count2 = -2
+    gds = GraphDataScience(driver)
+    with driver.session() as session:
+        session.run("CREATE (n:Foo {prop: 'IGNORE_ME'})")
+        session.run("CREATE (n:Bar {prop: 1})")
+        res = session.run(
+            "MATCH (n) WHERE 'Foo' IN labels(n) OR 'Bar' IN labels(n) RETURN count(n) as count"
+        )
+        existing_count1 = res.single()["count"]
+
+    # do validations
+    from mcp_server.src.mcp_server_neo4j_gds.gds import validate_node_properties
+
+    projection_properties_foo = validate_node_properties(gds, ["prop"], ["Foo"])
+    assert "prop" not in projection_properties_foo
+    projection_properties_bar = validate_node_properties(gds, ["prop"], ["Bar"])
+    assert projection_properties_bar["prop"] == "INTEGER"
+
+    # remove data
+    with driver.session() as session:
+        session.run("MATCH (n:Foo)  DETACH DELETE n")
+        session.run("MATCH (n:Bar)  DETACH DELETE n")
+
+        res = session.run(
+            "MATCH (n) WHERE 'Foo' IN labels(n) OR 'Bar' IN labels(n) RETURN count(n) as count"
+        )
+        existing_count2 = res.single()["count"]
+
+    driver.close()
+    assert existing_count1 == 2
+    assert existing_count2 == 0
+
+
+@pytest.mark.asyncio
+def test_rel_projection_properties_with_node_labels(neo4j_container):
+    """Import test data into Neo4j."""
+    # Set environment variables for the import script
+    os.environ["NEO4J_URI"] = neo4j_container
+    os.environ["NEO4J_USERNAME"] = NEO4J_USER
+    os.environ["NEO4J_PASSWORD"] = NEO4J_PASSWORD
+
+    driver = GraphDatabase.driver(neo4j_container, auth=(NEO4J_USER, NEO4J_PASSWORD))
+    existing_count1 = -1
+    existing_count2 = -2
+    gds = GraphDataScience(driver)
+    with driver.session() as session:
+        session.run("CREATE (:Foo)-[:REL1{ prop: 2.0}] ->(:Foo)")
+        session.run("CREATE (:Bar)-[:REL2{ prop: 'foo'}]->(:Bar)")
+
+        res = session.run(
+            "MATCH (n) WHERE 'Foo' IN labels(n) OR 'Bar' IN labels(n) RETURN count(n) as count"
+        )
+        existing_count1 = res.single()["count"]
+
+    # do validations
+    from mcp_server.src.mcp_server_neo4j_gds.gds import validate_rel_properties
+
+    projection_properties_foo = validate_rel_properties(gds, ["prop"], ["Foo"])
+    assert "prop" not in projection_properties_foo
+    projection_properties_bar = validate_rel_properties(gds, ["prop"], ["Bar"])
+    assert "prop" in projection_properties_bar
+
+    # remove data
+    with driver.session() as session:
+        session.run("MATCH (n:Foo)  DETACH DELETE n")
+        session.run("MATCH (n:Bar)  DETACH DELETE n")
+
+        res = session.run(
+            "MATCH (n) WHERE 'Foo' IN labels(n) OR 'Bar' IN labels(n)  IN labels(n) RETURN count(n) as count"
+        )
+        existing_count2 = res.single()["count"]
+
+    driver.close()
+    assert existing_count1 == 4
     assert existing_count2 == 0
